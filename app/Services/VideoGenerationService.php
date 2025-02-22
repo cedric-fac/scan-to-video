@@ -126,26 +126,56 @@ class VideoGenerationService
 
     protected function generateAudio(string $text): string
     {
-        $polly = new PollyClient([
-            'version' => 'latest',
-            'region'  => config('services.aws.region'),
-            'credentials' => [
-                'key'    => config('services.aws.key'),
-                'secret' => config('services.aws.secret'),
-            ]
-        ]);
-        
-        $result = $polly->synthesizeSpeech([
-            'Text' => $text,
-            'OutputFormat' => $this->config['audio_format'],
-            'VoiceId' => 'Matthew',
-            'Engine' => 'neural'
-        ]);
-        
-        $audioPath = $this->config['temp_path'] . '/' . uniqid('audio_') . '.' . $this->config['audio_format'];
-        Storage::put($audioPath, $result['AudioStream']->getContents());
-        
-        return Storage::path($audioPath);
+        try {
+            $polly = new \Aws\Polly\PollyClient([
+                'version' => 'latest',
+                'region'  => config('services.aws.region'),
+                'credentials' => [
+                    'key'    => config('services.aws.key'),
+                    'secret' => config('services.aws.secret'),
+                ]
+            ]);
+            
+            // Split text into chunks if it's too long (Polly has a 3000 character limit)
+            $chunks = str_split($text, 2900);
+            $audioStreams = [];
+            
+            foreach ($chunks as $chunk) {
+                $result = $polly->synthesizeSpeech([
+                    'Text' => $chunk,
+                    'OutputFormat' => $this->config['audio_format'],
+                    'VoiceId' => 'Matthew', // Neural voice for better quality
+                    'Engine' => 'neural',
+                    'TextType' => 'text', // Can be changed to 'ssml' for more control
+                    'SampleRate' => '24000' // High quality audio
+                ]);
+                
+                if (!isset($result['AudioStream'])) {
+                    throw new \RuntimeException('Failed to generate audio: No audio stream in response');
+                }
+                
+                $audioStreams[] = $result['AudioStream']->getContents();
+            }
+            
+            // Generate a unique filename for the audio
+            $audioPath = $this->config['temp_path'] . '/' . uniqid('audio_') . '.' . $this->config['audio_format'];
+            
+            // Combine all audio chunks
+            $combinedAudio = implode('', $audioStreams);
+            Storage::put($audioPath, $combinedAudio);
+            
+            $fullPath = Storage::path($audioPath);
+            
+            // Verify the audio file was created successfully
+            if (!file_exists($fullPath)) {
+                throw new \RuntimeException('Failed to save audio file');
+            }
+            
+            return $fullPath;
+        } catch (\Exception $e) {
+            Log::error("Failed to generate audio for chapter {$this->chapter->id}: {$e->getMessage()}");
+            throw new \RuntimeException("Failed to generate audio: {$e->getMessage()}");
+        }
     }
 
     protected function createVideo(array $images, string $audioPath): string
