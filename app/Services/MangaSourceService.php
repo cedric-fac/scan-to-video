@@ -102,10 +102,9 @@ class MangaSourceService
         $chapter->update([
             'content' => $content,
             'status' => 'processed',
-            'metadata' => [
-                'processed_at' => now()->format('Y-m-d H:i:s'),
-                'processing_time' => 0, // Would be calculated in real implementation
-            ],
+            'metadata' => array_merge($chapter->metadata ?? [], [
+                'processed_at' => now()->toIso8601String(),
+            ]),
         ]);
     }
 
@@ -113,10 +112,10 @@ class MangaSourceService
     {
         $chapter->update([
             'status' => 'failed',
-            'metadata' => [
+            'metadata' => array_merge($chapter->metadata ?? [], [
                 'error' => $error,
-                'failed_at' => now()->format('Y-m-d H:i:s'),
-            ],
+                'failed_at' => now()->toIso8601String(),
+            ]),
         ]);
     }
 }
