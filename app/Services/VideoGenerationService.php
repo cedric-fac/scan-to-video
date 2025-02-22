@@ -224,19 +224,21 @@ class VideoGenerationService
             // Configure video filters for enhanced quality output
             $video->filters()
                 ->custom([
-                    // Enhanced scaling with better quality
-                    'scale=1920:1080:force_original_aspect_ratio=decrease:flags=bicubic',
-                    // Center the image with padding and blur effect
-                    'pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black',
-                    // Smoother frame interpolation
-                    "fps={$this->config['frame_rate']}",
-                    // Enhanced transitions with cross-fade
-                    "tblend=all_mode=crossfade:all_opacity=0.8",
-                    // Dynamic zoom and pan effect
-                    'zoompan=z=\'if(lte(on,1),1.3,max(1.001,1.3-0.3*on/n))\''
-                        . ':x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\'' 
-                        . ':d=' . ($timePerImage * $this->config['frame_rate'])
-                        . ':s=1920x1080'
+                    // Enhanced scaling with better quality and sharpness
+                    'scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos+accurate_rnd',
+                    // Center the image with padding and gaussian blur effect for background
+                    'split[main][bg];[bg]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur=20:20[blurred];[blurred][main]overlay=(W-w)/2:(H-h)/2',
+                    // Smoother frame interpolation with motion interpolation
+                    "minterpolate=fps={$this->config['frame_rate']}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1",
+                    // Enhanced transitions with cross-fade and motion
+                    'tblend=all_mode=overlay:all_opacity=0.8',
+                    // Advanced Ken Burns effect with smooth acceleration
+                    'zoompan=z=\'if(lte(on,1),1.3,max(1.001,1.3-0.3*on/n))\':' .
+                        'd=' . ($timePerImage * $this->config['frame_rate']) . ':' .
+                        's=1920x1080:' .
+                        'x=\'iw/2-(iw/zoom/2)+sin(on/(8*PI))*100\':' .
+                        'y=\'ih/2-(ih/zoom/2)+cos(on/(8*PI))*100\':' .
+                        'fps=' . $this->config['frame_rate']
                 ])
                 ->synchronize();
             
