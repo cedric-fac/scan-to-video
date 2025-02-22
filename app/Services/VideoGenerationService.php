@@ -17,9 +17,37 @@ class VideoGenerationService
         $this->config = [
             'output_path' => 'videos',
             'temp_path' => 'temp',
-            'audio_format' => 'mp3',
+            'audio_format' => 'aac',
+            'audio_bitrate' => '320k',
+            'audio_sample_rate' => '48000',
+            'audio_channels' => 2,
             'video_format' => 'mp4',
-            'frame_rate' => 24,
+            'frame_rate' => 60,
+            'blur_intensity' => 80, // Increased for more pronounced blur effect
+            'blur_steps' => 12, // Increased for smoother blur gradient
+            'background_darkness' => 0.35, // Adjusted for better contrast
+            'background_saturation' => 0.6, // Increased for more vibrant backgrounds
+            'background_blur_sigma' => 8.0, // Increased for stronger gaussian blur
+            'motion_blur_strength' => 0.8,
+            'transition_duration' => 2.5,
+            'min_image_duration' => 4.0,
+            'ken_burns_zoom_range' => [1.1, 1.5],
+            'ken_burns_pan_range' => 180,
+            'video_bitrate' => '15M',
+            'video_preset' => 'veryslow',
+            'video_profile' => 'high',
+            'video_tune' => 'film',
+            'interpolation_mode' => 'mci',
+            'motion_estimation' => 'hexbs',
+            'denoiser_strength' => '2:2:8:8',
+            'sharpness_filter' => true,
+            'advanced_interpolation' => true,
+            'frame_blending' => 0.8,
+            'motion_compensation' => 'obmc',
+            'scene_detection' => true,
+            'scene_threshold' => 0.25,
+            'temporal_smoothing' => true,
+            'smoothing_frames' => 3
         ];
     }
 
@@ -225,35 +253,50 @@ class VideoGenerationService
             $video->filters()
                 ->custom([
                     // Enhanced scaling with better quality and sharpness
-                    'scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos+accurate_rnd',
-                    // Center the image with padding and gaussian blur effect for background
-                    'split[main][bg];[bg]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur=20:20[blurred];[blurred][main]overlay=(W-w)/2:(H-h)/2',
-                    // Smoother frame interpolation with motion interpolation
-                    "minterpolate=fps={$this->config['frame_rate']}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1",
-                    // Enhanced transitions with cross-fade and motion
-                    'tblend=all_mode=overlay:all_opacity=0.8',
-                    // Advanced Ken Burns effect with smooth acceleration
-                    'zoompan=z=\'if(lte(on,1),1.3,max(1.001,1.3-0.3*on/n))\':' .
-                        'd=' . ($timePerImage * $this->config['frame_rate']) . ':' .
-                        's=1920x1080:' .
-                        'x=\'iw/2-(iw/zoom/2)+sin(on/(8*PI))*100\':' .
-                        'y=\'ih/2-(ih/zoom/2)+cos(on/(8*PI))*100\':' .
-                        'fps=' . $this->config['frame_rate']
+                    'scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos+accurate_rnd+full_chroma_int+bicubic',
+                    // Center the image with enhanced gaussian blur and dynamic background processing
+                    'split[main][bg];[bg]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,' .
+                    "boxblur={$this->config['blur_intensity']}:{$this->config['blur_steps']}:lr=24:cr=24,eq=brightness=-0.2:saturation={$this->config['background_saturation']}:contrast=2.6," .
+                    "gblur=sigma={$this->config['background_blur_sigma']}:steps=32:planes=1:sigmaV=3.0,colorbalance=rs=-0.4:gs=-0.4:bs=-0.4:rm=0.3:gm=0.3:bm=0.3:rh=0.4:gh=0.4:bh=0.4," .
+                    "colorlevels=rimin=0.18:gimin=0.18:bimin=0.18:rimax={$this->config['background_darkness']}:gimax={$this->config['background_darkness']}:bimax={$this->config['background_darkness']}:amax=1.0:gamma=1.4[blurred];" .
+                    '[blurred][main]overlay=(W-w)/2:(H-h)/2:format=auto:eval=frame,format=yuv420p',
+                    // Advanced frame interpolation with motion estimation and frame blending
+                    "minterpolate=fps={$this->config['frame_rate']}:mi_mode={$this->config['interpolation_mode']}:mc_mode={$this->config['motion_compensation']}:me_mode={$this->config['motion_estimation']}:vsbmc=1:mb_size=16:search_param=32:me_thresh=50:vsbmc_thresh=4:scd_thresh=10:blend={$this->config['frame_blending']}:scd={$this->config['scene_detection'] ? 'fdiff' : 'none'}:scd_threshold={$this->config['scene_threshold']}:mci_strength=0.8:mci_radius={$this->config['smoothing_frames']}:mci_mode=adaptive",
+                    // Enhanced transitions with advanced motion-compensated interpolation and cross-fade
+                    "tblend=all_mode=overlay,all_opacity=1:framestep=1," .
+                    "tblend=all_mode=multiply:all_opacity={$this->config['motion_blur_strength']}," .
+                    "minterpolate=mi_mode=mci:mc_mode=aobmc:me_mode=bilat:vsbmc=1:fps={$this->config['frame_rate']}:me=epzs:mb_size=16:vsbmc=1:search=dia," .
+                    "hqdn3d={$this->config['denoiser_strength']}," .
+                    // Enhanced fade transitions with cross-fade and motion blur
+                    "fade=t=in:st=0:d={$this->config['transition_duration']}:alpha=1," .
+                    "fade=t=out:st=" . ($timePerImage - $this->config['transition_duration']) . ":d={$this->config['transition_duration']}:alpha=1," .
+                    "tblend=all_mode=darken:all_opacity=0.6:framestep=1",
+                    // Advanced Ken Burns effect with dynamic zoom and pan parameters
+                    'zoompan=z=\'min(max(zoom,1.001),' . $this->config['ken_burns_zoom_range'][1] . ')\':\'' .
+                        'd=' . ($timePerImage * $this->config['frame_rate']) . ':\'' .
+                        's=1920x1080:\'' .
+                        'x=\'iw/2-(iw/zoom/2)+sin(on/(8*PI))*' . $this->config['ken_burns_pan_range'] . '*sin(on/n*2*PI):\'' .
+                        'y=\'ih/2-(ih/zoom/2)+cos(on/(10*PI))*' . $this->config['ken_burns_pan_range'] . '*cos(on/n*2*PI):\'' .
+                        'zoom=\'if(lte(on,1),' . $this->config['ken_burns_zoom_range'][1] . ',if(gte(on,n-60),' . $this->config['ken_burns_zoom_range'][0] . ',' .
+                            $this->config['ken_burns_zoom_range'][1] . '-' . ($this->config['ken_burns_zoom_range'][1] - $this->config['ken_burns_zoom_range'][0]) . '*(0.5-0.5*cos((on/n)*PI))))\':' .
+                        'fps=' . $this->config['frame_rate'] .
+                    ($this->config['sharpness_filter'] ? ',unsharp=5:5:1.0:5:5:0.0' : '')
                 ])
                 ->synchronize();
             
             // Configure video format with optimized quality settings
             $format = new \FFMpeg\Format\Video\X264();
             $format
-                ->setKiloBitrate(8000) // 8Mbps video bitrate for higher quality
+                ->setKiloBitrate(intval($this->config['video_bitrate']))
                 ->setAudioCodec('aac')
-                ->setAudioKiloBitrate(320) // 320kbps audio bitrate for high quality audio
+                ->setAudioKiloBitrate(320)
                 ->setAudioChannels(2)
-                ->setPasses(2) // Two-pass encoding for optimal quality
-                ->setThreads(0) // Auto-detect number of threads
-                ->addAdditionalParameter('-preset', 'slow') // Better compression
-                ->addAdditionalParameter('-profile:v', 'high') // High profile for better quality
-                ->addAdditionalParameter('-movflags', '+faststart'); // Enable streaming
+                ->setPasses(2)
+                ->setThreads(0)
+                ->addAdditionalParameter('-preset', $this->config['video_preset'])
+                ->addAdditionalParameter('-profile:v', $this->config['video_profile'])
+                ->addAdditionalParameter('-tune', $this->config['video_tune'])
+                ->addAdditionalParameter('-movflags', '+faststart');
             
             // Add audio to the video with proper resampling
             $video->addFilter(new \FFMpeg\Filters\Audio\AudioResamplableFilter());
