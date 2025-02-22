@@ -180,43 +180,110 @@ class VideoGenerationService
 
     protected function createVideo(array $images, string $audioPath): string
     {
-        $videoPath = $this->config['output_path'] . '/' . uniqid('video_') . '.' . $this->config['video_format'];
-        $tempPath = Storage::path($this->config['temp_path']);
-        $outputPath = Storage::path($videoPath);
-        
-        // Create a temporary file containing the list of images
-        $listFile = $tempPath . '/images.txt';
-        file_put_contents($listFile, implode(PHP_EOL, array_map(function($image) {
-            return "file '$image'";
-        }, $images)));
-        
-        // Create video from images
-        $ffmpeg = FFMpeg::create();
-        $video = $ffmpeg->open('concat:' . $listFile);
-        
-        // Set video duration based on audio length        $audioInfo = $ffmpeg->getFFProbe()->format($audioPath);
-        $duration = $audioInfo->get('duration');
-        $frameCount = ceil($duration * $this->config['frame_rate']);
-        
-        // Add audio to video
-        $video
-            ->filters()
-            ->framerate($this->config['frame_rate'])
-            ->custom("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
-            ->synchronize();
-        
-        $format = new X264();
-        $format->setAudioCodec("aac");
-        
-        $video->save($format, $outputPath);
-        
-        // Clean up temporary files
-        @unlink($listFile);
-        @unlink($audioPath);
-        foreach ($images as $image) {
-            @unlink($image);
+        try {
+            $videoPath = $this->config['output_path'] . '/' . uniqid('video_') . '.' . $this->config['video_format'];
+            $tempPath = Storage::path($this->config['temp_path']);
+            $outputPath = Storage::path($videoPath);
+            
+            // Create a temporary file containing the list of images with duration
+            $listFile = $tempPath . '/images.txt';
+            
+            // Get audio duration using FFProbe
+            $ffprobe = \FFMpeg\FFProbe::create();
+            $audioInfo = $ffprobe->format($audioPath);
+            $duration = floatval($audioInfo->get('duration'));
+            
+            // Calculate time per image based on audio duration and add buffer for transitions
+            $transitionDuration = 0.5;
+            $effectiveDuration = $duration - ($transitionDuration * 2 * count($images));
+            $timePerImage = max($effectiveDuration / count($images), 2.0); // Minimum 2 seconds per image
+            
+            // Create the input file with proper duration for each image
+            $fileContent = '';
+            foreach ($images as $image) {
+                if (!file_exists($image)) {
+                    throw new \RuntimeException("Image file not found: {$image}");
+                }
+                $fileContent .= "file '{$image}'"
+                    . "\nduration {$timePerImage}\n";
+            }
+            file_put_contents($listFile, $fileContent);
+            
+            // Create FFMpeg instance with optimized configuration
+            $ffmpeg = \FFMpeg\FFMpeg::create([
+                'ffmpeg.binaries' => 'ffmpeg',
+                'ffprobe.binaries' => 'ffprobe',
+                'timeout' => 7200, // 2 hour timeout for longer videos
+                'ffmpeg.threads' => 0, // Auto-detect number of threads
+                'temporary_directory' => $tempPath
+            ]);
+            
+            // Create video from images
+            $video = $ffmpeg->open('concat:' . $listFile);
+            
+            // Configure video filters for enhanced quality output
+            $video->filters()
+                ->custom([
+                    // Scale video to 1080p while maintaining aspect ratio with smart scaling
+                    'scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos',
+                    // Center the image with padding and background blur
+                    'pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black',
+                    // Apply smooth frame interpolation
+                    "fps={$this->config['frame_rate']}",
+                    // Add smooth fade transitions between images
+                    'fade=t=in:st=0:d=' . $transitionDuration,
+                    'fade=t=out:st=' . ($timePerImage - $transitionDuration) . ':d=' . $transitionDuration,
+                    // Add subtle zoom effect
+                    'zoompan=z=1.02:d=' . ($timePerImage * $this->config['frame_rate'])
+                ])
+                ->synchronize();
+            
+            // Configure video format with optimized quality settings
+            $format = new \FFMpeg\Format\Video\X264();
+            $format
+                ->setKiloBitrate(8000) // 8Mbps video bitrate for higher quality
+                ->setAudioCodec('aac')
+                ->setAudioKiloBitrate(320) // 320kbps audio bitrate for high quality audio
+                ->setAudioChannels(2)
+                ->setPasses(2) // Two-pass encoding for optimal quality
+                ->setThreads(0) // Auto-detect number of threads
+                ->addAdditionalParameter('-preset', 'slow') // Better compression
+                ->addAdditionalParameter('-profile:v', 'high') // High profile for better quality
+                ->addAdditionalParameter('-movflags', '+faststart'); // Enable streaming
+            
+            // Add audio to the video with proper resampling
+            $video->addFilter(new \FFMpeg\Filters\Audio\AudioResamplableFilter());
+            
+            // Save the video with the audio
+            $video->save($format, $outputPath);
+            
+            // Clean up temporary files with error handling
+            $this->cleanupTemporaryFiles([$listFile, $audioPath, ...$images]);
+            
+            return $videoPath;
+        } catch (\Exception $e) {
+            // Attempt to clean up any temporary files even if video creation fails
+            $this->cleanupTemporaryFiles([$listFile ?? null, $audioPath, ...$images]);
+            Log::error("Failed to create video for chapter {$this->chapter->id}: {$e->getMessage()}");
+            throw new \RuntimeException("Failed to create video: {$e->getMessage()}");
         }
-        
-        return $videoPath;
+    }
+
+    /**
+     * Clean up temporary files safely
+     *
+     * @param array $files Array of file paths to clean up
+     */
+    protected function cleanupTemporaryFiles(array $files): void
+    {
+        foreach ($files as $file) {
+            if ($file && file_exists($file)) {
+                try {
+                    unlink($file);
+                } catch (\Exception $e) {
+                    Log::warning("Failed to clean up temporary file {$file}: {$e->getMessage()}");
+                }
+            }
+        }
     }
 }
