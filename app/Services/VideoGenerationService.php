@@ -194,13 +194,13 @@ class VideoGenerationService
             $duration = floatval($audioInfo->get('duration'));
             
             // Calculate time per image based on audio duration and add buffer for transitions
-            $transitionDuration = 0.5;
-            $effectiveDuration = $duration - ($transitionDuration * 2 * count($images));
-            $timePerImage = max($effectiveDuration / count($images), 2.0); // Minimum 2 seconds per image
+            $transitionDuration = 1.0; // Increased for smoother transitions
+            $effectiveDuration = $duration - ($transitionDuration * (count($images) + 1));
+            $timePerImage = max($effectiveDuration / count($images), 3.0); // Minimum 3 seconds per image
             
             // Create the input file with proper duration for each image
             $fileContent = '';
-            foreach ($images as $image) {
+            foreach ($images as $index => $image) {
                 if (!file_exists($image)) {
                     throw new \RuntimeException("Image file not found: {$image}");
                 }
@@ -213,8 +213,8 @@ class VideoGenerationService
             $ffmpeg = \FFMpeg\FFMpeg::create([
                 'ffmpeg.binaries' => 'ffmpeg',
                 'ffprobe.binaries' => 'ffprobe',
-                'timeout' => 7200, // 2 hour timeout for longer videos
-                'ffmpeg.threads' => 0, // Auto-detect number of threads
+                'timeout' => 7200,
+                'ffmpeg.threads' => 0,
                 'temporary_directory' => $tempPath
             ]);
             
@@ -224,17 +224,19 @@ class VideoGenerationService
             // Configure video filters for enhanced quality output
             $video->filters()
                 ->custom([
-                    // Scale video to 1080p while maintaining aspect ratio with smart scaling
-                    'scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos',
-                    // Center the image with padding and background blur
+                    // Enhanced scaling with better quality
+                    'scale=1920:1080:force_original_aspect_ratio=decrease:flags=bicubic',
+                    // Center the image with padding and blur effect
                     'pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black',
-                    // Apply smooth frame interpolation
+                    // Smoother frame interpolation
                     "fps={$this->config['frame_rate']}",
-                    // Add smooth fade transitions between images
-                    'fade=t=in:st=0:d=' . $transitionDuration,
-                    'fade=t=out:st=' . ($timePerImage - $transitionDuration) . ':d=' . $transitionDuration,
-                    // Add subtle zoom effect
-                    'zoompan=z=1.02:d=' . ($timePerImage * $this->config['frame_rate'])
+                    // Enhanced transitions with cross-fade
+                    "tblend=all_mode=crossfade:all_opacity=0.8",
+                    // Dynamic zoom and pan effect
+                    'zoompan=z=\'if(lte(on,1),1.3,max(1.001,1.3-0.3*on/n))\''
+                        . ':x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\'' 
+                        . ':d=' . ($timePerImage * $this->config['frame_rate'])
+                        . ':s=1920x1080'
                 ])
                 ->synchronize();
             
