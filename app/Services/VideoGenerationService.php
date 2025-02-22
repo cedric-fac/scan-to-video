@@ -92,27 +92,36 @@ class VideoGenerationService
 
     protected function generateNarrationText(): string
     {
-        $client = OpenAI::client(config('services.openai.api_key'));
-        
-        $prompt = "Generate a narration script for a manga chapter with the following details:\n";
-        $prompt .= "Title: {$this->chapter->title}\n";
-        $prompt .= "Chapter Number: {$this->chapter->chapter_number}\n";
-        
-        if (isset($this->chapter->content['text'])) {
-            $prompt .= "Content: {$this->chapter->content['text']}\n";
+        try {
+            $client = new \OpenAI\Client(config('services.openai.api_key'));
+            
+            $prompt = "Generate a narration script for a manga chapter with the following details:\n";
+            $prompt .= "Title: {$this->chapter->title}\n";
+            $prompt .= "Chapter Number: {$this->chapter->chapter_number}\n";
+            
+            if (isset($this->chapter->content['text'])) {
+                $prompt .= "Content: {$this->chapter->content['text']}\n";
+            }
+            
+            $response = $client->chat()->create([
+                'model' => 'gpt-4',
+                'messages' => [
+                    ['role' => 'system', 'content' => 'You are a professional manga narrator. Create an engaging narration script that captures the essence of the manga chapter, focusing on key story elements and emotional moments. Keep the narration concise yet impactful.'],
+                    ['role' => 'user', 'content' => $prompt]
+                ],
+                'temperature' => 0.7,
+                'max_tokens' => 1000
+            ]);
+            
+            if (!isset($response->choices[0]->message->content)) {
+                throw new \RuntimeException('Failed to generate narration text: Invalid API response');
+            }
+            
+            return $response->choices[0]->message->content;
+        } catch (\Exception $e) {
+            Log::error("Failed to generate narration for chapter {$this->chapter->id}: {$e->getMessage()}");
+            throw new \RuntimeException("Failed to generate narration: {$e->getMessage()}");
         }
-        
-        $response = $client->chat()->create([
-            'model' => 'gpt-4',
-            'messages' => [
-                ['role' => 'system', 'content' => 'You are a professional manga narrator. Create an engaging narration script that captures the essence of the manga chapter.'],
-                ['role' => 'user', 'content' => $prompt]
-            ],
-            'temperature' => 0.7,
-            'max_tokens' => 1000
-        ]);
-        
-        return $response->choices[0]->message->content;
     }
 
     protected function generateAudio(string $text): string
