@@ -260,8 +260,14 @@ class VideoGenerationService
                     "gblur=sigma={$this->config['background_blur_sigma']}:steps=32:planes=1:sigmaV=3.0,colorbalance=rs=-0.4:gs=-0.4:bs=-0.4:rm=0.3:gm=0.3:bm=0.3:rh=0.4:gh=0.4:bh=0.4," .
                     "colorlevels=rimin=0.18:gimin=0.18:bimin=0.18:rimax={$this->config['background_darkness']}:gimax={$this->config['background_darkness']}:bimax={$this->config['background_darkness']}:amax=1.0:gamma=1.4[blurred];" .
                     '[blurred][main]overlay=(W-w)/2:(H-h)/2:format=auto:eval=frame,format=yuv420p',
+                    // Enhanced motion interpolation with advanced frame blending
+                    'minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bilat:vsbmc=1:me=epzs:mb_size=16:search=dia:vsbmc_thresh=4:scd_thresh=10:blend=0.8:scd=fdiff',
+                    // Advanced frame blending for smoother transitions
+                    'tblend=all_mode=overlay:all_opacity=0.8,framestep=1',
+                    // Dynamic motion blur for cinematic effect
+                    'tmix=frames=4:weights="0.4 0.3 0.2 0.1"',
                     // Advanced frame interpolation with motion estimation and frame blending
-                    "minterpolate=fps={$this->config['frame_rate']}:mi_mode={$this->config['interpolation_mode']}:mc_mode={$this->config['motion_compensation']}:me_mode={$this->config['motion_estimation']}:vsbmc=1:mb_size=16:search_param=32:me_thresh=50:vsbmc_thresh=4:scd_thresh=10:blend={$this->config['frame_blending']}:scd={$this->config['scene_detection'] ? 'fdiff' : 'none'}:scd_threshold={$this->config['scene_threshold']}:mci_strength=0.8:mci_radius={$this->config['smoothing_frames']}:mci_mode=adaptive",
+                    "minterpolate=fps={$this->config['frame_rate']}:mi_mode={$this->config['interpolation_mode']}:mc_mode={$this->config['motion_compensation']}:me_mode={$this->config['motion_estimation']}:vsbmc=1:mb_size=16:search_param=32:me_thresh=50:vsbmc_thresh=4:scd_thresh=10:blend={$this->config['frame_blending']}:scd=" . ($this->config['scene_detection'] ? 'fdiff' : 'none') . ":scd_threshold={$this->config['scene_threshold']}:mci_strength=0.8:mci_radius={$this->config['smoothing_frames']}:mci_mode=adaptive",
                     // Enhanced transitions with advanced motion-compensated interpolation and cross-fade
                     "tblend=all_mode=overlay,all_opacity=1:framestep=1," .
                     "tblend=all_mode=multiply:all_opacity={$this->config['motion_blur_strength']}," .

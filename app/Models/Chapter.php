@@ -18,12 +18,17 @@ class Chapter extends Model
         'status',
         'content',
         'metadata',
+        'progress',
+        'estimated_time',
+        'error_message'
     ];
 
     protected $casts = [
         'chapter_number' => 'float',
         'content' => 'array',
         'metadata' => 'array',
+        'progress' => 'integer',
+        'estimated_time' => 'integer'
     ];
 
     public function mangaSource(): BelongsTo
@@ -44,5 +49,36 @@ class Chapter extends Model
     public function isFailed(): bool
     {
         return $this->status === 'failed';
+    }
+
+    public function getProgress(): int
+    {
+        return $this->progress ?? 0;
+    }
+
+    public function getEstimatedTime(): int
+    {
+        return $this->estimated_time ?? 0;
+    }
+
+    public function getErrorMessage(): ?string
+    {
+        return $this->error_message;
+    }
+
+    public function updateProgress(int $progress, ?int $estimatedTime = null): void
+    {
+        $this->progress = $progress;
+        if ($estimatedTime !== null) {
+            $this->estimated_time = $estimatedTime;
+        }
+        $this->save();
+    }
+
+    public function setError(string $message): void
+    {
+        $this->status = 'failed';
+        $this->error_message = $message;
+        $this->save();
     }
 }
